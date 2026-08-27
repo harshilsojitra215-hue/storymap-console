@@ -15,7 +15,7 @@ import MapPlaceholder from "@/components/MapPlaceholder";
 import ChapterForm from "@/components/ChapterForm";
 import CheckerPanel from "@/components/CheckerPanel";
 import MetricsPanel from "@/components/MetricsPanel";
-import StoryCard from "@/components/StoryCard";
+import ScrollingStoryPanel from "@/components/ScrollingStoryPanel";
 
 /** How long the story card lags behind typing. Camera and checker are never debounced. */
 const PREVIEW_DEBOUNCE_MS = 120;
@@ -244,8 +244,11 @@ export default function StorymapConsole({ initialChapters, loadError }: Props) {
                 onMapCreated={handleMapCreated}
                 onMapReady={handleMapReady}
               />
-              <StoryCard
-                chapter={previewChapter}
+              <ScrollingStoryPanel
+                chapters={chapters}
+                selectedId={selectedId}
+                previewChapter={previewChapter}
+                onSelectedChange={setSelectedId}
                 language={language}
                 onLanguageChange={setLanguage}
               />

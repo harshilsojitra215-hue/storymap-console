@@ -814,7 +814,11 @@ textarea {
   border: 0;
 }
 
-.story-card {
+/* The scroll surface itself — same footprint the single floating card used to
+   occupy. Every chapter is stacked inside it as its own .story-card; scrolling
+   through them is what drives selectedId (see ScrollingStoryPanel.tsx), the
+   same state a chapter-list click already drives. */
+.story-panel {
   position: absolute;
   z-index: 2;
   left: 24px;
@@ -822,6 +826,26 @@ textarea {
   width: min(370px, calc(100% - 48px));
   max-height: calc(100% - 48px);
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-snap-type: y proximity;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.story-panel-item {
+  flex: 0 0 auto;
+  /* Centre, not start: the IntersectionObserver in ScrollingStoryPanel.tsx
+     decides which chapter is selected by which card crosses the panel's
+     vertical MIDDLE. Snapping to each card's top edge instead would settle
+     scrolling at a position the observer was never designed to read from —
+     for a card roughly half the panel's height, its top-aligned rest position
+     leaves its own centre well above the panel's middle, handing the
+     selection to its neighbour instead. */
+  scroll-snap-align: center;
+}
+
+.story-card {
   padding: 16px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.96);
