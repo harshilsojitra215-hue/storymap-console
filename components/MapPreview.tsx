@@ -3,18 +3,33 @@
 import { useEffect, useRef, useState } from "react";
 import type * as MapLibre from "maplibre-gl";
 import type { MapView } from "@/lib/types";
+import MapPlaceholder from "./MapPlaceholder";
 import "maplibre-gl/dist/maplibre-gl.css";
 
-/** Free, no API key, includes 3D building data. */
+/** Free, no API key, and it ships 3D building extrusions in the style itself. */
 const STYLE_PRIMARY = "https://tiles.openfreemap.org/styles/liberty";
-/** Documented fallback if OpenFreeMap is unreachable. */
+/** Documented fallback if OpenFreeMap is unreachable. No 3D buildings on this one. */
 const STYLE_FALLBACK = "https://demotiles.maplibre.org/style.json";
+
+/**
+ * How long to wait for a style to actually put something on screen before giving
+ * up on it. Generous on the first attempt, because "slow" and "broken" look
+ * identical for the first few seconds and downgrading a working map is worse
+ * than waiting a moment longer.
+ */
+const FIRST_PAINT_DEADLINE = { primary: 12000, fallback: 8000 };
+/** Once something has errored, stop waiting out the full deadline. */
+const DEADLINE_AFTER_ERROR = 2500;
+
+type Status = "loading" | "ready" | "failed";
 
 type Props = {
   view: MapView;
   chapterId: string;
+  /** The instance exists. From here on, no edit can cost a page reload. */
+  onMapCreated: () => void;
+  /** The map has actually drawn something, so its camera is worth capturing. */
   onMapReady: (map: MapLibre.Map) => void;
-  onStyleFallback: () => void;
 };
 
 /**
@@ -39,37 +54,15 @@ function cameraAlreadyThere(map: MapLibre.Map, view: MapView) {
   );
 }
 
-/** Liberty ships 3D buildings; bare-bones styles do not. Add them if they are missing. */
-function ensureBuildingExtrusion(map: MapLibre.Map) {
-  try {
-    const style = map.getStyle();
-    if (!style?.layers) return;
-    if (style.layers.some((l) => l.type === "fill-extrusion")) return;
-    if (!style.sources || !("openmaptiles" in style.sources)) return;
-    map.addLayer({
-      id: "buildings-3d",
-      type: "fill-extrusion",
-      source: "openmaptiles",
-      "source-layer": "building",
-      minzoom: 14,
-      paint: {
-        "fill-extrusion-color": "#c8ccd4",
-        "fill-extrusion-height": ["coalesce", ["get", "render_height"], 8],
-        "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], 0],
-        "fill-extrusion-opacity": 0.75,
-      },
-    });
-  } catch {
-    // Cosmetic only. A style without building data is not a reason to fail.
-  }
-}
-
-export default function MapPreview({ view, chapterId, onMapReady, onStyleFallback }: Props) {
+export default function MapPreview({ view, chapterId, onMapCreated, onMapReady }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibre.Map | null>(null);
   const startedRef = useRef(false);
   const lastChapterRef = useRef<string>(chapterId);
-  const [ready, setReady] = useState(false);
+  const [status, setStatus] = useState<Status>("loading");
+  const [downgraded, setDowngraded] = useState(false);
+
+  const ready = status === "ready";
 
   // The map is built once and never destroyed. There is deliberately no cleanup
   // function and nothing that aborts the build half way: tearing the map down and
@@ -77,7 +70,10 @@ export default function MapPreview({ view, chapterId, onMapReady, onStyleFallbac
   //
   // That also makes this effect safe under React's development StrictMode, which
   // runs every effect twice. The ref below lets the second run fall straight out
-  // instead of racing the first.
+  // instead of racing the first. Note this is also why there is no cleanup that
+  // clears the watchdog timer: StrictMode runs cleanup immediately after the
+  // first mount, which would cancel the watchdog belonging to the live map and
+  // leave a stalled style with nothing to rescue it.
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
@@ -93,20 +89,9 @@ export default function MapPreview({ view, chapterId, onMapReady, onStyleFallbac
       // scripts/copy-map-worker.mjs, which puts the file in public/ at build time.
       maplibregl.setWorkerUrl("/maplibre-gl-worker.mjs");
 
-      let style = STYLE_PRIMARY;
-      try {
-        // The timeout matters: without it, a blocked or blackholed tile host does
-        // not fail, it simply never answers, and the map never appears at all.
-        const probe = await fetch(STYLE_PRIMARY, { signal: AbortSignal.timeout(5000) });
-        if (!probe.ok) throw new Error(String(probe.status));
-      } catch {
-        style = STYLE_FALLBACK;
-        onStyleFallback();
-      }
-
       const map = new maplibregl.Map({
         container: containerRef.current,
-        style,
+        style: STYLE_PRIMARY,
         center: [view.lon, view.lat],
         zoom: view.zoom,
         pitch: view.pitch,
@@ -118,19 +103,116 @@ export default function MapPreview({ view, chapterId, onMapReady, onStyleFallbac
       map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
       map.touchZoomRotate.enableRotation();
 
-      // The Liberty style references a handful of POI icons its sprite sheet does
-      // not actually ship. Unhandled, each one logs a warning on every load and
-      // buries anything worth reading. They are decorative, so resolve them to
-      // nothing on purpose.
-      map.setMissingStyleImageResolver(() => undefined);
-
-      map.on("load", () => {
-        ensureBuildingExtrusion(map);
-        setReady(true);
+      // The Liberty style asks for a handful of POI icons its own sprite sheet does
+      // not ship. Every one of them logs a warning on every load unless something
+      // answers for them, so answer with a transparent pixel. Returning nothing
+      // counts as "still unresolved" and does not silence anything.
+      map.setMissingStyleImageResolver((id) => {
+        if (!map.hasImage(id)) {
+          map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) });
+        }
       });
 
+      // --- Deciding whether this map actually works ------------------------
+      //
+      // The honest test is not "did the style JSON parse" but "did anything appear
+      // on screen". A style can parse perfectly and still be useless because its
+      // tile endpoint is dead, which looks exactly like a finished, empty map.
+      // So the map is only considered ready once it has rendered and gone idle.
+
+      let painted = false;
+      let usingFallback = false;
+      let shortenedAfterError = false;
+      let watchdog: ReturnType<typeof setTimeout>;
+
+      const waitFor = (ms: number) => {
+        clearTimeout(watchdog);
+        watchdog = setTimeout(onStalled, ms);
+      };
+
+      const markPainted = () => {
+        if (painted) return;
+        painted = true;
+        clearTimeout(watchdog);
+        setStatus("ready");
+        // Only hand the map upwards once it is genuinely usable, so "Use this
+        // view" cannot capture a camera nobody has been able to look at.
+        onMapReady(map);
+      };
+
+      /**
+       * Is there actually anything on screen?
+       *
+       * `idle` on its own is not evidence: a map whose tile endpoint is dead has
+       * nothing left to fetch, so it goes idle almost immediately and looks
+       * exactly like a finished map that happens to be empty. Asking the map what
+       * it has drawn tells those two apart, and unlike the source-loaded events it
+       * works the same way for both styles.
+       */
+      const somethingIsDrawn = () => {
+        try {
+          return map.queryRenderedFeatures().length > 0;
+        } catch {
+          return false;
+        }
+      };
+
+      function onStalled() {
+        if (painted) return;
+        if (!usingFallback) {
+          usingFallback = true;
+          shortenedAfterError = false;
+          setDowngraded(true);
+          map.setStyle(STYLE_FALLBACK);
+          waitFor(FIRST_PAINT_DEADLINE.fallback);
+          return;
+        }
+
+        // The fallback has had its turn too. If a style did load and there is
+        // simply nothing to draw — a camera parked over open ocean would do it —
+        // then the map is working and the emptiness is the truth. Show it.
+        if (map.isStyleLoaded()) {
+          markPainted();
+          return;
+        }
+
+        // No style at all. Say so, rather than animating a loading label forever.
+        setStatus("failed");
+      }
+
+      // `idle` fires when the map has finished rendering everything it currently
+      // can — so paired with the check above, it is the moment there is genuinely
+      // something to look at.
+      map.on("idle", () => {
+        if (somethingIsDrawn()) markPainted();
+      });
+
+      // The deadline measures how long we wait for data AFTER a style arrives, not
+      // how long the whole thing has taken. Otherwise a slow connection and a dead
+      // tile endpoint are indistinguishable, and slow connections lose their map.
+      map.on("style.load", () => {
+        if (!painted) waitFor(usingFallback ? FIRST_PAINT_DEADLINE.fallback : FIRST_PAINT_DEADLINE.primary);
+      });
+
+      map.on("error", () => {
+        // After the first paint, errors are individual tiles at the edge of the
+        // viewport failing, which the map recovers from by itself.
+        if (painted || shortenedAfterError) return;
+        // Before the first paint, an error is evidence rather than a verdict: a
+        // single flaky request should not cost the good style. It only shortens
+        // how long we are willing to wait.
+        shortenedAfterError = true;
+        waitFor(DEADLINE_AFTER_ERROR);
+      });
+
+      waitFor(FIRST_PAINT_DEADLINE.primary);
+
       mapRef.current = map;
-      onMapReady(map);
+      // The instance exists from this moment. It is never rebuilt, so from here
+      // on nothing the editor does can cost a page reload — which is the claim
+      // the measurement panel counts. That is separate from whether the map has
+      // finished drawing, which is what gates "Use this view" below.
+      onMapCreated();
 
       // Development-only handle, so the live camera can be read from the browser
       // console while checking that the preview genuinely never reloads.
@@ -169,7 +251,35 @@ export default function MapPreview({ view, chapterId, onMapReady, onStyleFallbac
     // Same chapter, numbers genuinely changed: someone typed. Follow immediately,
     // so the preview answers on the keystroke.
     map.jumpTo(target);
-  }, [chapterId, view.lat, view.lon, view.zoom, view.pitch, view.bearing, ready, view]);
+  }, [chapterId, view.lat, view.lon, view.zoom, view.pitch, view.bearing, ready]);
 
-  return <div ref={containerRef} className="map-canvas" aria-label="Live map preview" />;
+  return (
+    <>
+      <div ref={containerRef} className="map-canvas" aria-label="Live map preview" />
+
+      {/* Covers the whole gap: this component mounting, the map building itself,
+          and the first tiles arriving. Without it the pane is a blank rectangle
+          for those seconds. */}
+      {!ready && <MapPlaceholder failed={status === "failed"} />}
+
+      {/* Only once there is a map to look at. While the placeholder is up it
+          speaks for itself, and two messages in the same corner is one too many. */}
+      {ready && downgraded && (
+        <p className="style-note">
+          OpenFreeMap was unreachable — showing the MapLibre demo style instead. 3D
+          buildings are unavailable on that style.
+        </p>
+      )}
+
+      {/* Kept mounted in every state, so screen readers hear the transition
+          rather than a message that was already there when the region appeared. */}
+      <p className="sr-only" role="status" aria-live="polite">
+        {status === "ready"
+          ? "Map preview ready."
+          : status === "failed"
+            ? "The map preview could not be loaded. The rest of the editor still works."
+            : "Preparing map preview."}
+      </p>
+    </>
+  );
 }

@@ -10,15 +10,18 @@ import { EMPTY_METRICS } from "@/lib/types";
 import { countBySeverity, evaluate, summarise } from "@/lib/rules";
 
 import ChapterList from "@/components/ChapterList";
+import MapPlaceholder from "@/components/MapPlaceholder";
 import ChapterForm from "@/components/ChapterForm";
 import CheckerPanel from "@/components/CheckerPanel";
 import MetricsPanel from "@/components/MetricsPanel";
 import StoryCard from "@/components/StoryCard";
 
-// MapLibre needs a real browser, so the preview never renders on the server.
+// MapLibre needs a real browser, so the preview never renders on the server. It is
+// also a large download, and loading it separately is what lets the editor, the
+// panels and the story card paint immediately instead of waiting on the map.
 const MapPreview = dynamic(() => import("@/components/MapPreview"), {
   ssr: false,
-  loading: () => <div className="map-canvas map-loading">Loading map…</div>,
+  loading: () => <MapPlaceholder />,
 });
 
 const round = (n: number, places: number) => Number(n.toFixed(places));
@@ -31,11 +34,12 @@ export default function Page() {
   const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS);
   const [language, setLanguage] = useState<"de" | "en">("de");
   const [mapReady, setMapReady] = useState(false);
-  const [usedFallbackStyle, setUsedFallbackStyle] = useState(false);
   /** Bumped by "Use this view" so the form drops any half-typed numbers. */
   const [captureCount, setCaptureCount] = useState(0);
 
   const mapRef = useRef<MapLibre.Map | null>(null);
+  /** True once the map instance exists — which it does for the rest of the session. */
+  const mapExistsRef = useRef(false);
 
   const selected = chapters.find((c) => c.id === selectedId) ?? chapters[0];
   const findings = useMemo(() => evaluate(selected), [selected]);
@@ -54,7 +58,7 @@ export default function Page() {
         totalEdits: m.totalEdits + 1,
         // The map, once created, is never rebuilt — so every edit after it exists
         // is an edit that cost no reload. Counted, not assumed.
-        editsSinceMapCreated: mapRef.current
+        editsSinceMapCreated: mapExistsRef.current
           ? m.editsSinceMapCreated + 1
           : m.editsSinceMapCreated,
       };
@@ -112,12 +116,15 @@ export default function Page() {
     setCaptureCount((n) => n + 1);
   }, [patchSelected, recordEdit, selectedId]);
 
+  const handleMapCreated = useCallback(() => {
+    mapExistsRef.current = true;
+  }, []);
+
   const handleMapReady = useCallback((map: MapLibre.Map) => {
     mapRef.current = map;
     setMapReady(true);
   }, []);
 
-  const handleStyleFallback = useCallback(() => setUsedFallbackStyle(true), []);
 
   return (
     <main className="app">
@@ -168,16 +175,10 @@ export default function Page() {
           <MapPreview
             view={selected.view}
             chapterId={selected.id}
+            onMapCreated={handleMapCreated}
             onMapReady={handleMapReady}
-            onStyleFallback={handleStyleFallback}
           />
           <StoryCard chapter={selected} language={language} onLanguageChange={setLanguage} />
-          {usedFallbackStyle && (
-            <p className="style-note">
-              OpenFreeMap was unreachable — showing the MapLibre demo style instead. 3D
-              buildings are unavailable on that style.
-            </p>
-          )}
         </section>
       </div>
     </main>

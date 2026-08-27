@@ -17,6 +17,10 @@
   --suggestion: #5b6472;
   --suggestion-soft: #f0f2f5;
   --clean: #1f6b3f;
+  /* Deep teal ground. The anchor colour the full design pass builds from. */
+  --map-ground: #013438;
+  --map-ground-ink: #f2ede4;
+  --map-ground-line: rgba(242, 237, 228, 0.09);
   --radius: 8px;
   --shadow: 0 1px 2px rgba(19, 24, 32, 0.06), 0 8px 24px rgba(19, 24, 32, 0.08);
 }
@@ -570,17 +574,103 @@ textarea {
   inset: 0;
   width: 100%;
   height: 100%;
+  z-index: 0;
+  /* The ground the map settles into, so there is never a white flash beneath it. */
+  background: var(--map-ground);
 }
 
-.map-loading {
+/* Shown while the map library downloads, while the map builds itself, and until
+   the first tiles have actually rendered. */
+.map-placeholder {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: var(--map-ground);
+  color: var(--map-ground-ink);
+  /* Deliberately NOT pointer-events: none. The map's own zoom and compass
+     controls sit underneath and are invisible through this layer; letting clicks
+     reach controls nobody can see is worse than swallowing them. */
+}
+
+.map-placeholder-grid {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--map-ground-line);
+}
+
+/* Top-left, not centred: the story card floats over the middle and bottom-left of
+   this pane and would hide a centred label entirely on a narrow screen. */
+.map-placeholder-label {
+  position: absolute;
+  top: 22px;
+  left: 22px;
+  right: 22px;
+  margin: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--muted);
+  flex-direction: column;
+  gap: 6px;
+  max-width: 34ch;
+}
+
+.map-placeholder-headline {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  opacity: 0.72;
+}
+
+.map-placeholder-headline.is-waiting {
+  animation: placeholder-breathe 2.4s ease-in-out infinite;
+}
+
+.map-placeholder-detail {
+  font-size: 12.5px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.7;
+}
+
+.map-placeholder.is-failed .map-placeholder-headline {
+  opacity: 0.95;
+}
+
+@keyframes placeholder-breathe {
+  0%,
+  100% {
+    opacity: 0.36;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-placeholder-headline.is-waiting {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* Visible only to screen readers. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 .story-card {
   position: absolute;
+  z-index: 2;
   left: 24px;
   bottom: 24px;
   width: min(370px, calc(100% - 48px));
@@ -661,8 +751,11 @@ textarea {
   font-style: italic;
 }
 
+/* Above the placeholder (z-index 1), or it is painted over precisely when it has
+   something to say. */
 .style-note {
   position: absolute;
+  z-index: 3;
   top: 12px;
   left: 12px;
   max-width: 320px;
