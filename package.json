@@ -1,0 +1,25 @@
+{
+  "name": "storymap-console",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "copy:map-worker": "node scripts/copy-map-worker.mjs",
+    "predev": "npm run copy:map-worker",
+    "dev": "next dev",
+    "prebuild": "npm run copy:map-worker",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "maplibre-gl": "^6.6.0",
+    "next": "16.3.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5"
+  }
+}
