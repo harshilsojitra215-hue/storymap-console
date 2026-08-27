@@ -86,6 +86,60 @@ textarea {
   color: var(--muted);
 }
 
+/* This is the line doing the "not the real product" work. Small and muted on
+   purpose — it needs to register, not shout. */
+.app-strapline {
+  margin: 6px 0 0;
+  max-width: 56ch;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* Small uppercase headers naming what each pane is. */
+.pane-header {
+  margin: 0;
+  padding: 10px 20px 0;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+/* The right pane has no static top strip — the map fills it — so its header
+   floats over the corner instead of taking layout space. */
+.pane-header-floating {
+  position: absolute;
+  z-index: 3;
+  top: 12px;
+  left: 12px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(4px);
+}
+
+/* A light chip, like the pane header — the note sits over live map tiles once
+   loaded, not over the dark loading ground, so it needs its own background
+   rather than assuming a dark one underneath. */
+.preview-scope-note {
+  position: absolute;
+  z-index: 2;
+  right: 12px;
+  bottom: 8px;
+  max-width: 46ch;
+  margin: 0;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(4px);
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+  text-align: right;
+}
+
 .topbar-status {
   display: flex;
   flex-direction: column;
@@ -313,6 +367,57 @@ textarea {
   color: var(--muted);
 }
 
+.layers-block {
+  margin-top: 4px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.layer-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* The whole row is the clickable label — checkbox, name and hint all toggle
+   it, and the row is tall enough on its own to be a comfortable tap target
+   without the checkbox itself needing to grow. */
+.layer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 40px;
+  padding: 4px 2px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.layer-row:hover {
+  background: var(--line-soft);
+}
+
+.layer-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.layer-toggle input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+}
+
+.layer-label {
+  font-size: 13px;
+}
+
 /* ---------- Checker ---------- */
 
 .checker {
@@ -419,6 +524,21 @@ textarea {
   margin: 2px 0 0;
   font-size: 12px;
   color: var(--ink-soft);
+}
+
+.checker-project {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+
+.checker-project-label {
+  margin: 0 0 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
 }
 
 .checker-footnote {
@@ -557,6 +677,32 @@ textarea {
 .metrics-note {
   margin-top: 14px;
   line-height: 1.45;
+}
+
+/* The GraphQL query on the server failed. Chapters may still be an empty []. */
+.data-error-banner {
+  margin: 0;
+  padding: 10px 20px;
+  background: var(--blocker-soft);
+  color: var(--blocker);
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* data/chapters.json parsed fine but has no entries in it. */
+.empty-state {
+  margin: 0;
+  padding: 20px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.empty-state code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  background: var(--line-soft);
+  padding: 1px 4px;
+  border-radius: 3px;
 }
 
 .disclaimer {
@@ -795,5 +941,19 @@ textarea {
     flex: 0 0 auto;
     height: 60vh;
     min-height: 340px;
+  }
+
+  /* On a phone the story card grows tall enough — long body text wraps to
+     several lines — that a note pinned to the pane's bottom-right corner
+     lands underneath the card's own last line rather than beside it. Moving
+     it up to stack under the pane header keeps both legible, since the
+     shorter 60vh pane leaves room there that desktop's taller preview does
+     not need. */
+  .preview-scope-note {
+    top: 44px;
+    right: 12px;
+    bottom: auto;
+    left: 12px;
+    text-align: left;
   }
 }

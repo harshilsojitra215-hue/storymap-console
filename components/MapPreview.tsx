@@ -4,7 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import type * as MapLibre from "maplibre-gl";
 import type { MapView } from "@/lib/types";
 import MapPlaceholder from "./MapPlaceholder";
+import routeGeoJson from "@/data/route-geojson.json";
 import "maplibre-gl/dist/maplibre-gl.css";
+
+const ROUTE_SOURCE_ID = "illustrative-route-source";
+const ROUTE_LINE_LAYER_ID = "illustrative-route-line";
+const STATIONS_LAYER_ID = "illustrative-stations";
 
 /** Free, no API key, and it ships 3D building extrusions in the style itself. */
 const STYLE_PRIMARY = "https://tiles.openfreemap.org/styles/liberty";
@@ -21,16 +26,96 @@ const FIRST_PAINT_DEADLINE = { primary: 12000, fallback: 8000 };
 /** Once something has errored, stop waiting out the full deadline. */
 const DEADLINE_AFTER_ERROR = 2500;
 
+/**
+ * Keeps the map from ever needing tiles for the whole planet: nothing to fetch
+ * past this zoom, and nowhere to pan past this box.
+ *
+ * The box is deliberately much larger than the project area around Frankfurt.
+ * The "Tunnel West portal" chapter ships with its latitude and longitude
+ * swapped on purpose, which puts its camera in the Atlantic off West Africa —
+ * that empty-ocean view is the whole point of the demo, the thing that makes
+ * the checker's "coordinates appear to be the wrong way round" finding land.
+ * A box drawn tightly around Frankfurt would clamp that flight and quietly
+ * defeat its own demonstration, so this one is wide enough to hold both the
+ * real project and its own deliberately broken coordinate.
+ */
+const MAX_ZOOM = 19;
+const MAX_BOUNDS: [[number, number], [number, number]] = [
+  [-20, -20],
+  [60, 60],
+];
+
 type Status = "loading" | "ready" | "failed";
 
 type Props = {
   view: MapView;
   chapterId: string;
+  /** Ids of the layers the current chapter shows. Unknown ids are simply ignored here — the checker is what flags those, not the map. */
+  layers: string[];
   /** The instance exists. From here on, no edit can cost a page reload. */
   onMapCreated: () => void;
   /** The map has actually drawn something, so its camera is worth capturing. */
   onMapReady: (map: MapLibre.Map) => void;
 };
+
+/**
+ * Adds this prototype's own route line and station markers to whichever style
+ * is currently active, both hidden by default.
+ *
+ * Called every time a style finishes loading, not just once: `setStyle()`
+ * replaces the entire style document, including any source or layer added on
+ * top of the previous one, so switching to the fallback style would silently
+ * lose these unless they are re-added afterwards too. Checking for the source
+ * first makes this safe to call repeatedly on the same style without error.
+ */
+function ensureIllustrativeLayers(map: MapLibre.Map) {
+  if (map.getSource(ROUTE_SOURCE_ID)) return;
+
+  map.addSource(ROUTE_SOURCE_ID, {
+    type: "geojson",
+    data: routeGeoJson as GeoJSON.FeatureCollection,
+  });
+
+  map.addLayer({
+    id: ROUTE_LINE_LAYER_ID,
+    type: "line",
+    source: ROUTE_SOURCE_ID,
+    filter: ["==", ["geometry-type"], "LineString"],
+    layout: { visibility: "none", "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": "#c9622b", "line-width": 3, "line-dasharray": [2, 1.5] },
+  });
+
+  map.addLayer({
+    id: STATIONS_LAYER_ID,
+    type: "circle",
+    source: ROUTE_SOURCE_ID,
+    filter: ["==", ["geometry-type"], "Point"],
+    layout: { visibility: "none" },
+    paint: {
+      "circle-radius": 6,
+      "circle-color": "#ffffff",
+      "circle-stroke-width": 2.5,
+      "circle-stroke-color": "#c9622b",
+    },
+  });
+}
+
+/**
+ * The base style may or may not ship its own 3D building layer — Liberty does
+ * (a `fill-extrusion` layer named `building-3d`), the MapLibre demo fallback
+ * style does not. Finding it by type rather than hardcoding its id is what
+ * lets the "3D buildings" toggle keep working if the style's own layer names
+ * ever change, and correctly do nothing on a style that has none.
+ */
+function findBuildingExtrusionLayerId(map: MapLibre.Map): string | null {
+  const layer = map.getStyle()?.layers?.find((l) => l.type === "fill-extrusion");
+  return layer?.id ?? null;
+}
+
+function setLayerVisible(map: MapLibre.Map, layerId: string | null, visible: boolean) {
+  if (!layerId || !map.getLayer(layerId)) return;
+  map.setLayoutProperty(layerId, "visibility", visible ? "visible" : "none");
+}
 
 /**
  * How close the map has to already be to the incoming numbers before we decide
@@ -54,13 +139,25 @@ function cameraAlreadyThere(map: MapLibre.Map, view: MapView) {
   );
 }
 
-export default function MapPreview({ view, chapterId, onMapCreated, onMapReady }: Props) {
+export default function MapPreview({ view, chapterId, layers, onMapCreated, onMapReady }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibre.Map | null>(null);
   const startedRef = useRef(false);
   const lastChapterRef = useRef<string>(chapterId);
   const [status, setStatus] = useState<Status>("loading");
   const [downgraded, setDowngraded] = useState(false);
+  /** Re-discovered on every style.load — the fallback style has no such layer. */
+  const buildingLayerIdRef = useRef<string | null>(null);
+  /**
+   * The mount effect below runs exactly once and its closures capture whatever
+   * `layers` was at that moment. This ref is what lets its style.load handler
+   * see the CURRENT chapter's layer choices when a style swap happens well
+   * after mount, rather than replaying the very first chapter's.
+   */
+  const layersRef = useRef<string[]>(layers);
+  useEffect(() => {
+    layersRef.current = layers;
+  }, [layers]);
 
   const ready = status === "ready";
 
@@ -97,6 +194,8 @@ export default function MapPreview({ view, chapterId, onMapCreated, onMapReady }
         pitch: view.pitch,
         bearing: view.bearing,
         maxPitch: 85,
+        maxZoom: MAX_ZOOM,
+        maxBounds: MAX_BOUNDS,
         attributionControl: { compact: true },
       });
 
@@ -192,6 +291,14 @@ export default function MapPreview({ view, chapterId, onMapCreated, onMapReady }
       // tile endpoint are indistinguishable, and slow connections lose their map.
       map.on("style.load", () => {
         if (!painted) waitFor(usingFallback ? FIRST_PAINT_DEADLINE.fallback : FIRST_PAINT_DEADLINE.primary);
+        ensureIllustrativeLayers(map);
+        buildingLayerIdRef.current = findBuildingExtrusionLayerId(map);
+        // A style swap wipes visibility state along with everything else custom
+        // on the old style, so the current chapter's layer choices are re-applied
+        // immediately rather than waiting for the next unrelated re-render.
+        setLayerVisible(map, ROUTE_LINE_LAYER_ID, layersRef.current.includes("route"));
+        setLayerVisible(map, STATIONS_LAYER_ID, layersRef.current.includes("stations"));
+        setLayerVisible(map, buildingLayerIdRef.current, layersRef.current.includes("buildings3d"));
       });
 
       map.on("error", () => {
@@ -252,6 +359,17 @@ export default function MapPreview({ view, chapterId, onMapCreated, onMapReady }
     // so the preview answers on the keystroke.
     map.jumpTo(target);
   }, [chapterId, view.lat, view.lon, view.zoom, view.pitch, view.bearing, ready]);
+
+  // Layer visibility follows the current chapter immediately — switching
+  // chapters or flipping a toggle both apply on the next render, same as the
+  // checker. Only the story card's text is debounced; this is not.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    setLayerVisible(map, ROUTE_LINE_LAYER_ID, layers.includes("route"));
+    setLayerVisible(map, STATIONS_LAYER_ID, layers.includes("stations"));
+    setLayerVisible(map, buildingLayerIdRef.current, layers.includes("buildings3d"));
+  }, [layers, ready]);
 
   return (
     <>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Chapter, MapView } from "@/lib/types";
+import { LAYER_DEFINITIONS, type LayerId } from "@/lib/layers";
 
 type TextField = "title" | "bodyDe" | "bodyEn" | "imageUrl" | "imageAlt";
 
@@ -9,6 +10,7 @@ type Props = {
   chapter: Chapter;
   onTextChange: (field: TextField, value: string) => void;
   onViewChange: (field: keyof MapView, value: number) => void;
+  onLayerToggle: (id: LayerId, visible: boolean) => void;
   onUseThisView: () => void;
   mapReady: boolean;
   /** Changes whenever the fields are replaced from outside, e.g. by "Use this view". */
@@ -27,6 +29,7 @@ export default function ChapterForm({
   chapter,
   onTextChange,
   onViewChange,
+  onLayerToggle,
   onUseThisView,
   mapReady,
   resetKey,
@@ -137,6 +140,33 @@ export default function ChapterForm({
             ? "View captured from the map."
             : "No view captured yet — these are seed numbers nobody has looked at."}
         </p>
+      </section>
+
+      <section className="layers-block">
+        <h3 className="view-title">Layers</h3>
+        <p className="view-explainer">
+          What this chapter shows on top of the base map.
+        </p>
+        <ul className="layer-list">
+          {LAYER_DEFINITIONS.map((layer) => (
+            <li key={layer.id}>
+              {/* The whole row is one label, hint text included, so the tap
+                  target is the full row width rather than just the checkbox
+                  and its short caption next to it. */}
+              <label className="layer-row">
+                <span className="layer-toggle">
+                  <input
+                    type="checkbox"
+                    checked={chapter.layers.includes(layer.id)}
+                    onChange={(e) => onLayerToggle(layer.id, e.target.checked)}
+                  />
+                  <span className="layer-label">{layer.label}</span>
+                </span>
+                <span className="field-hint">{layer.hint}</span>
+              </label>
+            </li>
+          ))}
+        </ul>
       </section>
     </div>
   );

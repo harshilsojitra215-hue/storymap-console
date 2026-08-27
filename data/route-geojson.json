@@ -1,0 +1,32 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Illustrative tunnel corridor",
+        "illustrative": true,
+        "note": "An invented, approximate path for this prototype's demonstration. It is not real project geometry and was not taken from any survey, plan, or client document."
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [8.6392, 50.1043],
+          [8.66375, 50.10709],
+          [8.70421, 50.09849],
+          [8.6858, 50.0993]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Frankfurt Hauptbahnhof", "illustrative": true },
+      "geometry": { "type": "Point", "coordinates": [8.66375, 50.10709] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Frankfurt Süd", "illustrative": true },
+      "geometry": { "type": "Point", "coordinates": [8.6858, 50.0993] }
+    }
+  ]
+}

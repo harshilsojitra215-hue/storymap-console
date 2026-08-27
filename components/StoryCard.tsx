@@ -1,6 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import type { Chapter } from "@/lib/types";
+
+/** Matches the placeholder SVGs generated for this repo (public/placeholders/*.svg). */
+const PLACEHOLDER_WIDTH = 640;
+const PLACEHOLDER_HEIGHT = 360;
 
 type Props = {
   chapter: Chapter;
@@ -40,8 +45,19 @@ export default function StoryCard({ chapter, language, onLanguageChange }: Props
       </h2>
 
       {chapter.imageUrl.trim() ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img className="story-card-image" src={chapter.imageUrl} alt={chapter.imageAlt} />
+        <Image
+          className="story-card-image"
+          src={chapter.imageUrl}
+          alt={chapter.imageAlt}
+          width={PLACEHOLDER_WIDTH}
+          height={PLACEHOLDER_HEIGHT}
+          sizes="(max-width: 900px) 90vw, 370px"
+          // The Image URL field is free text an editor can point anywhere, so the
+          // fixed domain allowlist next/image normally enforces can't apply here.
+          // Explicit width/height is what actually prevents layout shift; that
+          // guarantee holds with or without the optimizer running.
+          unoptimized
+        />
       ) : null}
 
       {body.trim() ? (

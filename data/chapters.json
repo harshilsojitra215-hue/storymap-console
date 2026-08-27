@@ -7,7 +7,8 @@
     "imageUrl": "/placeholders/hauptbahnhof.svg",
     "imageAlt": "Schematic cross-section of a new underground platform level beneath a terminus station",
     "view": { "lat": 50.10709, "lon": 8.66375, "zoom": 15.4, "pitch": 52, "bearing": 28 },
-    "viewCaptured": true
+    "viewCaptured": true,
+    "layers": ["route", "buildings3d"]
   },
   {
     "id": "west-portal",
@@ -17,7 +18,8 @@
     "imageUrl": "/placeholders/west-portal.svg",
     "imageAlt": "",
     "view": { "lat": 8.6392, "lon": 50.1043, "zoom": 16.2, "pitch": 55, "bearing": 95 },
-    "viewCaptured": true
+    "viewCaptured": true,
+    "layers": ["route", "buildings3d", "tunnelOverlay"]
   },
   {
     "id": "east-portal",
@@ -27,7 +29,8 @@
     "imageUrl": "/placeholders/east-portal.svg",
     "imageAlt": "Schematic of a tunnel portal emerging between existing railway tracks",
     "view": { "lat": 50.09849, "lon": 8.70421, "zoom": 15.8, "pitch": 65, "bearing": 312 },
-    "viewCaptured": true
+    "viewCaptured": true,
+    "layers": ["route", "buildings3d"]
   },
   {
     "id": "frankfurt-sued",
@@ -37,6 +40,7 @@
     "imageUrl": "/placeholders/frankfurt-sued.svg",
     "imageAlt": "Schematic platform layout at a through station",
     "view": { "lat": 50.0993, "lon": 8.6858, "zoom": 15.1, "pitch": 45, "bearing": 0 },
-    "viewCaptured": false
+    "viewCaptured": false,
+    "layers": ["route", "buildings3d"]
   }
 ]

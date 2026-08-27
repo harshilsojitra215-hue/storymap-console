@@ -1,186 +1,96 @@
-"use client";
+import { graphql } from "graphql";
+import { schema } from "@/lib/graphql/schema";
+import type { Chapter } from "@/lib/types";
+import StorymapConsole from "@/components/StorymapConsole";
 
-import { useCallback, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
-import type * as MapLibre from "maplibre-gl";
+// Without this, Next treats an async Server Component with no per-request
+// input as static and runs it once at build time — meaning the page would
+// keep serving whatever data/chapters.json contained at the last build, while
+// /api/graphql (a real Route Handler) reads the file fresh on every request.
+// That split contradicts the point of putting chapters behind GraphQL at all:
+// the API and the page it feeds would silently disagree. Forcing dynamic
+// rendering makes both read the same live file on every request; the query
+// still resolves server-side before HTML is sent, so first paint stays
+// instant either way.
+export const dynamic = "force-dynamic";
 
-import seed from "@/data/chapters.json";
-import type { Chapter, MapView, Metrics } from "@/lib/types";
-import { EMPTY_METRICS } from "@/lib/types";
-import { countBySeverity, evaluate, summarise } from "@/lib/rules";
+const CHAPTERS_QUERY = /* GraphQL */ `
+  query AllChapters {
+    chapters {
+      id
+      title
+      bodyDe
+      bodyEn
+      imageUrl
+      imageAlt
+      viewCaptured
+      layers
+      view {
+        lat
+        lon
+        zoom
+        pitch
+        bearing
+      }
+    }
+  }
+`;
 
-import ChapterList from "@/components/ChapterList";
-import MapPlaceholder from "@/components/MapPlaceholder";
-import ChapterForm from "@/components/ChapterForm";
-import CheckerPanel from "@/components/CheckerPanel";
-import MetricsPanel from "@/components/MetricsPanel";
-import StoryCard from "@/components/StoryCard";
+/**
+ * Runs the GraphQL query in-process rather than making an HTTP round trip to
+ * this app's own /api/graphql route. The data still goes through the same
+ * schema and the same resolvers — see lib/graphql/schema.ts — so this is
+ * genuinely a GraphQL query, not a JSON import wearing a GraphQL costume. It
+ * just skips the network hop a server asking itself a question over HTTP would
+ * otherwise need, which would need its own origin URL and add nothing.
+ *
+ * A Server Component doing this keeps the page's first paint instant: the
+ * chapters are already resolved by the time HTML is sent, so there is no
+ * client-side loading state for the initial load — a loading spinner here
+ * would be a regression, not a feature.
+ */
+export default async function Page() {
+  const result = await graphql({ schema, source: CHAPTERS_QUERY });
 
-// MapLibre needs a real browser, so the preview never renders on the server. It is
-// also a large download, and loading it separately is what lets the editor, the
-// panels and the story card paint immediately instead of waiting on the map.
-const MapPreview = dynamic(() => import("@/components/MapPreview"), {
-  ssr: false,
-  loading: () => <MapPlaceholder />,
-});
+  if (result.errors?.length) {
+    // Logged for whoever is running this deployment, not shown to whoever is
+    // looking at the page. The /api/graphql route masks its own errors the
+    // same way by default (graphql-yoga's built-in behaviour) — this direct,
+    // in-process call bypasses that layer entirely, so it needs its own guard
+    // against leaking an internal exception message (e.g. a raw JSON.parse
+    // error naming a byte offset) into the rendered banner.
+    console.error("GraphQL query for chapters failed:", result.errors[0]?.message);
+    return (
+      <StorymapConsole
+        initialChapters={[]}
+        loadError="the chapters data could not be read"
+      />
+    );
+  }
 
-const round = (n: number, places: number) => Number(n.toFixed(places));
-
-export default function Page() {
-  const [chapters, setChapters] = useState<Chapter[]>(() =>
-    structuredClone(seed as Chapter[]),
-  );
-  const [selectedId, setSelectedId] = useState<string>((seed as Chapter[])[0].id);
-  const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS);
-  const [language, setLanguage] = useState<"de" | "en">("de");
-  const [mapReady, setMapReady] = useState(false);
-  /** Bumped by "Use this view" so the form drops any half-typed numbers. */
-  const [captureCount, setCaptureCount] = useState(0);
-
-  const mapRef = useRef<MapLibre.Map | null>(null);
-  /** True once the map instance exists — which it does for the rest of the session. */
-  const mapExistsRef = useRef(false);
-
-  const selected = chapters.find((c) => c.id === selectedId) ?? chapters[0];
-  const findings = useMemo(() => evaluate(selected), [selected]);
-
-  const projectCounts = useMemo(() => {
-    const all = chapters.flatMap((c) => evaluate(c));
-    return countBySeverity(all);
-  }, [chapters]);
-
-  const recordEdit = useCallback((chapterId: string, field: string) => {
-    setMetrics((m) => {
-      const forChapter = { ...(m.perChapter[chapterId] ?? {}) };
-      forChapter[field] = (forChapter[field] ?? 0) + 1;
-      return {
-        perChapter: { ...m.perChapter, [chapterId]: forChapter },
-        totalEdits: m.totalEdits + 1,
-        // The map, once created, is never rebuilt — so every edit after it exists
-        // is an edit that cost no reload. Counted, not assumed.
-        editsSinceMapCreated: mapExistsRef.current
-          ? m.editsSinceMapCreated + 1
-          : m.editsSinceMapCreated,
-      };
-    });
-  }, []);
-
-  const patchSelected = useCallback(
-    (patch: Partial<Chapter>) => {
-      setChapters((list) =>
-        list.map((c) => (c.id === selectedId ? { ...c, ...patch } : c)),
-      );
+  // graphql-js builds its execution result with null-prototype objects (a
+  // guard against prototype pollution in resolver output). React's Server ->
+  // Client boundary refuses those outright ("null prototypes are not
+  // supported"), so each chapter is rebuilt as a genuinely plain object before
+  // it crosses that boundary into StorymapConsole.
+  const raw = (result.data?.chapters as Chapter[] | undefined) ?? [];
+  const chapters: Chapter[] = raw.map((c) => ({
+    id: c.id,
+    title: c.title,
+    bodyDe: c.bodyDe,
+    bodyEn: c.bodyEn,
+    imageUrl: c.imageUrl,
+    imageAlt: c.imageAlt,
+    viewCaptured: c.viewCaptured,
+    layers: [...c.layers],
+    view: {
+      lat: c.view.lat,
+      lon: c.view.lon,
+      zoom: c.view.zoom,
+      pitch: c.view.pitch,
+      bearing: c.view.bearing,
     },
-    [selectedId],
-  );
+  }));
 
-  const handleTextChange = useCallback(
-    (field: "title" | "bodyDe" | "bodyEn" | "imageUrl" | "imageAlt", value: string) => {
-      patchSelected({ [field]: value });
-      recordEdit(selectedId, field);
-    },
-    [patchSelected, recordEdit, selectedId],
-  );
-
-  const handleViewChange = useCallback(
-    (field: keyof MapView, value: number) => {
-      setChapters((list) =>
-        list.map((c) =>
-          c.id === selectedId ? { ...c, view: { ...c.view, [field]: value } } : c,
-        ),
-      );
-      recordEdit(selectedId, field);
-    },
-    [recordEdit, selectedId],
-  );
-
-  /**
-   * The headline feature. Instead of guessing five numbers, look at the map,
-   * get it right by hand, and take the numbers off it.
-   */
-  const handleUseThisView = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const centre = map.getCenter();
-    patchSelected({
-      view: {
-        lat: round(centre.lat, 5),
-        lon: round(centre.lng, 5),
-        zoom: round(map.getZoom(), 2),
-        pitch: round(map.getPitch(), 2),
-        bearing: round(map.getBearing(), 2),
-      },
-      viewCaptured: true,
-    });
-    recordEdit(selectedId, "useThisView");
-    setCaptureCount((n) => n + 1);
-  }, [patchSelected, recordEdit, selectedId]);
-
-  const handleMapCreated = useCallback(() => {
-    mapExistsRef.current = true;
-  }, []);
-
-  const handleMapReady = useCallback((map: MapLibre.Map) => {
-    mapRef.current = map;
-    setMapReady(true);
-  }, []);
-
-
-  return (
-    <main className="app">
-      <header className="topbar">
-        <div>
-          <h1 className="app-title">Storymap Editor Console</h1>
-          <p className="app-subtitle">
-            Edit and see, in one screen, with no reload between the two.
-          </p>
-        </div>
-        <div className="topbar-status">
-          <span className="topbar-status-label">Across {chapters.length} chapters</span>
-          <span
-            className={
-              projectCounts.blocker > 0 ? "topbar-status-value has-blocker" : "topbar-status-value"
-            }
-          >
-            {summarise(chapters.flatMap((c) => evaluate(c)))}
-          </span>
-        </div>
-      </header>
-
-      <div className="split">
-        <section className="pane pane-left" aria-label="Editor">
-          <ChapterList chapters={chapters} selectedId={selectedId} onSelect={setSelectedId} />
-
-          <ChapterForm
-            chapter={selected}
-            onTextChange={handleTextChange}
-            onViewChange={handleViewChange}
-            onUseThisView={handleUseThisView}
-            mapReady={mapReady}
-            resetKey={`${selectedId}:${captureCount}`}
-          />
-
-          <CheckerPanel findings={findings} />
-
-          <MetricsPanel metrics={metrics} chapter={selected} />
-
-          <footer className="disclaimer">
-            Unaffiliated prototype, built in response to a public challenge brief. No client
-            code, CMS, content or branding is used. Text and imagery here are invented;
-            coordinates are approximate and public.
-          </footer>
-        </section>
-
-        <section className="pane pane-right" aria-label="Live preview">
-          <MapPreview
-            view={selected.view}
-            chapterId={selected.id}
-            onMapCreated={handleMapCreated}
-            onMapReady={handleMapReady}
-          />
-          <StoryCard chapter={selected} language={language} onLanguageChange={setLanguage} />
-        </section>
-      </div>
-    </main>
-  );
+  return <StorymapConsole initialChapters={chapters} />;
 }

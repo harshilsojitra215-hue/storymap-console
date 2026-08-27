@@ -17,6 +17,15 @@ export type Chapter = {
   view: MapView;
   /** False until someone has actually looked at the map and captured this view. */
   viewCaptured: boolean;
+  /**
+   * Ids of the layers this chapter currently shows — presence means visible,
+   * absence means hidden. A plain string array rather than a boolean map on
+   * purpose: an id that isn't in the current layer registry (see lib/layers.ts)
+   * stays in this array untouched rather than being silently dropped, which is
+   * exactly what lets the checker notice a chapter still pointing at a layer
+   * that no longer exists.
+   */
+  layers: string[];
 };
 
 export type Severity = "blocker" | "warning" | "suggestion";
@@ -38,6 +47,24 @@ export type Metrics = {
   totalEdits: number;
   /** Edits made since the map instance was created. It is never re-created. */
   editsSinceMapCreated: number;
+};
+
+/**
+ * A valid, inert Chapter used only when there is genuinely nothing to show —
+ * e.g. an empty data/chapters.json — so hooks that must run unconditionally
+ * (React's rules of hooks) always have something real to hold, even though
+ * nothing that reads it is ever rendered in that state.
+ */
+export const EMPTY_CHAPTER: Chapter = {
+  id: "",
+  title: "",
+  bodyDe: "",
+  bodyEn: "",
+  imageUrl: "",
+  imageAlt: "",
+  view: { lat: 0, lon: 0, zoom: 0, pitch: 0, bearing: 0 },
+  viewCaptured: false,
+  layers: [],
 };
 
 export const EMPTY_METRICS: Metrics = {

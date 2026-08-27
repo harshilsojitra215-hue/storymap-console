@@ -1,7 +1,7 @@
 "use client";
 
 import type { Chapter } from "@/lib/types";
-import { countBySeverity, evaluate } from "@/lib/rules";
+import { countBySeverity, evaluateCached } from "@/lib/rules";
 
 type Props = {
   chapters: Chapter[];
@@ -18,7 +18,7 @@ export default function ChapterList({ chapters, selectedId, onSelect }: Props) {
   return (
     <nav className="chapter-list" aria-label="Story chapters">
       {chapters.map((chapter, index) => {
-        const counts = countBySeverity(evaluate(chapter));
+        const counts = countBySeverity(evaluateCached(chapter));
         const status = counts.blocker > 0 ? "blocker" : counts.warning > 0 ? "warning" : "clean";
         const issues = counts.blocker + counts.warning + counts.suggestion;
 
