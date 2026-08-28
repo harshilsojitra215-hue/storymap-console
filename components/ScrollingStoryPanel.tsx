@@ -18,6 +18,13 @@ type Props = {
   onSelectedChange: (id: string) => void;
   language: "de" | "en";
   onLanguageChange: (lang: "de" | "en") => void;
+  /**
+   * False while the panel's own top-right "close" button has hidden it. Kept
+   * mounted rather than unrendered — display:none only — so scroll position,
+   * the observer's refs and which chapter is centred all survive a close and
+   * reopen instead of resetting to the top.
+   */
+  visible: boolean;
 };
 
 /**
@@ -35,6 +42,7 @@ export default function ScrollingStoryPanel({
   onSelectedChange,
   language,
   onLanguageChange,
+  visible,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef(new Map<string, HTMLDivElement>());
@@ -85,17 +93,55 @@ export default function ScrollingStoryPanel({
    * selection is never overridden by geometry alone.
    */
   const hasScrolledRef = useRef(false);
+  /**
+   * Until this timestamp (Date.now()-based), the observer's own callback
+   * ignores whatever it sees. Set whenever focus lands inside the panel:
+   * every chapter's controls stay mounted (display:none only), so Tab can
+   * reach an off-screen card's button and the browser auto-scrolls it into
+   * view as a side effect of focusing — that scroll is keyboard navigation,
+   * not a "switch chapters" gesture, and must not reassign selectedId or
+   * refly the map out from under someone tabbing through controls. A time
+   * window rather than a boolean because it must coexist with (never get
+   * cut short by) the click-driven suppressObserverRef below, which uses its
+   * own release/lifetime — a shared boolean would let one path's release
+   * cancel the other's.
+   */
+  const focusSuppressUntilRef = useRef(0);
+
+  /**
+   * Where the panel is actually scrolled to, measured fresh off the DOM
+   * rather than trusted from ratiosRef's cache. ratiosRef is only ever
+   * updated inside the IntersectionObserver's own (async, browser-scheduled)
+   * callback — reading it right after a scroll completes can still hold
+   * pre-scroll values if that callback hasn't run yet, which is exactly what
+   * let an instant (prefers-reduced-motion) scrollIntoView revert the very
+   * selection it had just made: scrollend fired, the stale cache still said
+   * the OLD card was centred, and that got committed straight back.
+   * Measuring live sidesteps the race instead of trying to win it.
+   */
+  const computeCenteredId = (): string | null => {
+    const container = containerRef.current;
+    if (!container) return null;
+    const centerY = container.getBoundingClientRect().top + container.clientHeight / 2;
+    let bestId: string | null = null;
+    let bestDistance = Infinity;
+    sectionRefs.current.forEach((el, id) => {
+      const rect = el.getBoundingClientRect();
+      const distance = Math.abs(rect.top + rect.height / 2 - centerY);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestId = id;
+      }
+    });
+    return bestId;
+  };
 
   /**
    * Reads ratiosRef and, if a card other than the last-reported one is now
-   * the strongest candidate, commits it. Shared by the observer callback
-   * (below) and by the click-driven effect's own suppression release —
-   * without the second call site, a scroll that gets interrupted mid-flight
-   * (a scrollbar drag landing somewhere else while a click's smooth scroll is
-   * still suppressing the observer) could settle on a different card than
-   * the click's target and never get corrected: releasing suppression only
-   * unblocks the NEXT observer callback, and if nothing scrolls again after
-   * that, no next callback ever arrives.
+   * the strongest candidate, commits it. This is the observer callback's own
+   * commit path — driven by live intersection data as it arrives, so no
+   * staleness risk there. (The click-driven effect below settles via
+   * computeCenteredId instead, for the reason explained on that function.)
    */
   const commitBestCandidate = () => {
     let bestId: string | null = null;
@@ -124,13 +170,26 @@ export default function ScrollingStoryPanel({
     };
     container.addEventListener("scroll", markScrolled, { once: true, passive: true });
 
+    // See focusSuppressUntilRef above: a Tab landing on an off-screen card's
+    // control auto-scrolls it into view, and that must not read as "the user
+    // scrolled to switch chapters."
+    const handleFocusIn = () => {
+      focusSuppressUntilRef.current = Date.now() + 300;
+    };
+    container.addEventListener("focusin", handleFocusIn);
+
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
           const id = entry.target.getAttribute("data-chapter-id");
           if (id) ratiosRef.current.set(id, entry.isIntersecting ? entry.intersectionRatio : 0);
         }
-        if (suppressObserverRef.current || !hasScrolledRef.current) return;
+        if (
+          suppressObserverRef.current ||
+          !hasScrolledRef.current ||
+          Date.now() < focusSuppressUntilRef.current
+        )
+          return;
         commitBestCandidate();
       },
       // A band around the panel's own vertical middle, not its edges: a card
@@ -151,6 +210,7 @@ export default function ScrollingStoryPanel({
     return () => {
       observer.disconnect();
       container.removeEventListener("scroll", markScrolled);
+      container.removeEventListener("focusin", handleFocusIn);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -178,7 +238,16 @@ export default function ScrollingStoryPanel({
       // click's own target is still what settled — a scrollbar drag or
       // another click landing mid-animation can leave a DIFFERENT card
       // centred by the time this fires, and nothing else will correct it.
-      commitBestCandidate();
+      // Measured live (see computeCenteredId) rather than via
+      // commitBestCandidate's ratiosRef cache, which is only updated by the
+      // observer's own async callback and can still hold pre-scroll values
+      // at this exact instant — trusting it here was what let an instant
+      // (prefers-reduced-motion) scroll revert itself.
+      const centeredId = computeCenteredId();
+      if (centeredId && centeredId !== lastObservedIdRef.current) {
+        lastObservedIdRef.current = centeredId;
+        onSelectedChange(centeredId);
+      }
     };
     container.addEventListener("scrollend", release);
     // Belt-and-braces: if the browser never fires scrollend for this scroll
@@ -198,7 +267,7 @@ export default function ScrollingStoryPanel({
   }, [selectedId]);
 
   return (
-    <div ref={containerRef} className="story-panel">
+    <div ref={containerRef} className={visible ? "story-panel" : "story-panel is-hidden"}>
       {chapters.map((chapter) => (
         <div
           key={chapter.id}
@@ -211,8 +280,10 @@ export default function ScrollingStoryPanel({
         >
           <StoryCard
             chapter={chapter.id === previewChapter.id ? previewChapter : chapter}
+            chapters={chapters}
             language={language}
             onLanguageChange={onLanguageChange}
+            onSelectChapter={onSelectedChange}
           />
         </div>
       ))}

@@ -35,6 +35,8 @@ export type Finding = {
   severity: Severity;
   message: string;
   why: string;
+  /** Set only for findings the checker groups under its own "Accessibility" heading. */
+  category?: "accessibility";
 };
 
 /**

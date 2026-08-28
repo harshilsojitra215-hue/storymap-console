@@ -49,6 +49,9 @@ export default function StorymapConsole({ initialChapters, loadError }: Props) {
   const [mapReady, setMapReady] = useState(false);
   /** Bumped by "Use this view" so the form drops any half-typed numbers. */
   const [captureCount, setCaptureCount] = useState(0);
+  /** The floating story panel's own top-right "close" button hides it; the
+   *  map furniture's bottom-left button (and reselecting a chapter) brings it back. */
+  const [storyVisible, setStoryVisible] = useState(true);
 
   const mapRef = useRef<MapLibre.Map | null>(null);
   /** True once the map instance exists — which it does for the rest of the session. */
@@ -166,11 +169,23 @@ export default function StorymapConsole({ initialChapters, loadError }: Props) {
     setMapReady(true);
   }, []);
 
+  const selectedIndex = chapters.findIndex((c) => c.id === selectedId);
+
+  const handleStoryBack = useCallback(() => {
+    if (selectedIndex > 0) setSelectedId(chapters[selectedIndex - 1].id);
+  }, [chapters, selectedIndex]);
+
+  const handleStoryClose = useCallback(() => setStoryVisible(false), []);
+  const handleOpenChapterList = useCallback(() => setStoryVisible(true), []);
+
   return (
     <main className="app">
       <header className="topbar">
         <div>
-          <h1 className="app-title">Storymap Editor Console</h1>
+          <div className="wordmark">
+            <h1 className="wordmark-mark">Storymap Editor Console</h1>
+            <span className="wordmark-tag">Prototype</span>
+          </div>
           <p className="app-subtitle">
             Edit and see, in one screen, with no reload between the two.
           </p>
@@ -227,9 +242,64 @@ export default function StorymapConsole({ initialChapters, loadError }: Props) {
           )}
 
           <footer className="disclaimer">
-            Unaffiliated prototype, built in response to a public challenge brief. No client
-            code, CMS, content or branding is used. Text and imagery here are invented;
-            coordinates are approximate and public.
+            <p>
+              Unaffiliated prototype, built in response to a public challenge brief. No client
+              code, CMS, content or branding is used. Text is invented; coordinates are
+              approximate and public. Photographs are real and credited below.
+            </p>
+            <p>
+              Independent prototype built in response to the public Challenge #2 brief. Not
+              affiliated with die wegmeister GmbH.
+            </p>
+            <details className="photo-credits">
+              <summary>Photograph credits</summary>
+              <ul>
+                <li>
+                  Station facade — Megalogiannis,{" "}
+                  <a
+                    href="https://commons.wikimedia.org/wiki/File:Frankfurt_(Main)_Hauptbahnhof_facade.jpg"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Wikimedia Commons
+                  </a>
+                  , CC BY-SA 4.0
+                </li>
+                <li>
+                  Platform hall — MHM55,{" "}
+                  <a
+                    href="https://commons.wikimedia.org/wiki/File:Platform_hall-Frankfurt_(Main)_Hauptbahnhof-06.jpg"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Wikimedia Commons
+                  </a>
+                  , CC BY-SA 4.0
+                </li>
+                <li>
+                  Station exterior — Jonashtand,{" "}
+                  <a
+                    href="https://commons.wikimedia.org/wiki/File:202206_Frankfurt_(Main)_Hauptbahnhof_02.jpg"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Wikimedia Commons
+                  </a>
+                  , CC BY-SA 4.0
+                </li>
+                <li>
+                  Frankfurt Süd sign — GeorgDerReisende,{" "}
+                  <a
+                    href="https://commons.wikimedia.org/wiki/File:Bahnhof_Frankfurt_(Main)_S%C3%BCd,_1,_Sachsenhausen,_Frankfurt_am_Main.jpg"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Wikimedia Commons
+                  </a>
+                  , CC BY-SA 4.0
+                </li>
+              </ul>
+            </details>
           </footer>
         </section>
 
@@ -243,7 +313,31 @@ export default function StorymapConsole({ initialChapters, loadError }: Props) {
                 layers={selected.layers}
                 onMapCreated={handleMapCreated}
                 onMapReady={handleMapReady}
+                onOpenChapterList={handleOpenChapterList}
               />
+
+              {storyVisible && (
+                <>
+                  <button
+                    type="button"
+                    className="story-corner-btn story-corner-back"
+                    onClick={handleStoryBack}
+                    disabled={selectedIndex <= 0}
+                    aria-label="Previous chapter"
+                  >
+                    ‹
+                  </button>
+                  <button
+                    type="button"
+                    className="story-corner-btn story-corner-close"
+                    onClick={handleStoryClose}
+                    aria-label="Close story panel"
+                  >
+                    ×
+                  </button>
+                </>
+              )}
+
               <ScrollingStoryPanel
                 chapters={chapters}
                 selectedId={selectedId}
@@ -251,6 +345,7 @@ export default function StorymapConsole({ initialChapters, loadError }: Props) {
                 onSelectedChange={setSelectedId}
                 language={language}
                 onLanguageChange={setLanguage}
+                visible={storyVisible}
               />
             </>
           )}

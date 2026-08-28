@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type * as MapLibre from "maplibre-gl";
 import type { MapView } from "@/lib/types";
 import MapPlaceholder from "./MapPlaceholder";
+import MapControls from "./MapControls";
 import routeGeoJson from "@/data/route-geojson.json";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -45,6 +46,19 @@ const MAX_BOUNDS: [[number, number], [number, number]] = [
   [60, 60],
 ];
 
+/**
+ * Where the map is actually constructed, before it flies to whatever chapter
+ * is selected. Flat and zoomed well out over the whole project area: at
+ * pitch 0 there is no 3D-building extrusion to rasterise, and at this zoom
+ * one or two tiles cover the entire visible area instead of the dozen-plus a
+ * chapter's own close, tilted camera would need. First paint depends on
+ * these tiles arriving, not the chapter's — the flight to the real view (see
+ * the "has this map ever flown" branch below) happens once that first paint
+ * is already on screen, so nothing about the destination changes, only how
+ * much has to load before there is something to look at.
+ */
+const CHEAP_INITIAL_CAMERA = { lon: 8.68, lat: 50.12, zoom: 10.5, pitch: 0, bearing: 0 };
+
 type Status = "loading" | "ready" | "failed";
 
 type Props = {
@@ -56,6 +70,8 @@ type Props = {
   onMapCreated: () => void;
   /** The map has actually drawn something, so its camera is worth capturing. */
   onMapReady: (map: MapLibre.Map) => void;
+  /** The map furniture's bottom-left button — brings the story panel back if it's been closed. */
+  onOpenChapterList: () => void;
 };
 
 /**
@@ -139,13 +155,24 @@ function cameraAlreadyThere(map: MapLibre.Map, view: MapView) {
   );
 }
 
-export default function MapPreview({ view, chapterId, layers, onMapCreated, onMapReady }: Props) {
+export default function MapPreview({
+  view,
+  chapterId,
+  layers,
+  onMapCreated,
+  onMapReady,
+  onOpenChapterList,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibre.Map | null>(null);
   const startedRef = useRef(false);
   const lastChapterRef = useRef<string>(chapterId);
+  /** True once the map has flown from its cheap construction camera to the real first chapter. */
+  const hasFlownInitialRef = useRef(false);
   const [status, setStatus] = useState<Status>("loading");
   const [downgraded, setDowngraded] = useState(false);
+  /** Mirrors mapRef into state once, purely so MapControls can react to the map existing. */
+  const [mapInstance, setMapInstance] = useState<MapLibre.Map | null>(null);
   /** Re-discovered on every style.load — the fallback style has no such layer. */
   const buildingLayerIdRef = useRef<string | null>(null);
   /**
@@ -189,17 +216,19 @@ export default function MapPreview({ view, chapterId, layers, onMapCreated, onMa
       const map = new maplibregl.Map({
         container: containerRef.current,
         style: STYLE_PRIMARY,
-        center: [view.lon, view.lat],
-        zoom: view.zoom,
-        pitch: view.pitch,
-        bearing: view.bearing,
+        center: [CHEAP_INITIAL_CAMERA.lon, CHEAP_INITIAL_CAMERA.lat],
+        zoom: CHEAP_INITIAL_CAMERA.zoom,
+        pitch: CHEAP_INITIAL_CAMERA.pitch,
+        bearing: CHEAP_INITIAL_CAMERA.bearing,
         maxPitch: 85,
         maxZoom: MAX_ZOOM,
         maxBounds: MAX_BOUNDS,
         attributionControl: { compact: true },
       });
 
-      map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+      // No default NavigationControl here — the map furniture is custom (see
+      // MapControls.tsx), styled to match the reference product instead of
+      // MapLibre's own control skin.
       map.touchZoomRotate.enableRotation();
 
       // The Liberty style asks for a handful of POI icons its own sprite sheet does
@@ -234,6 +263,7 @@ export default function MapPreview({ view, chapterId, layers, onMapCreated, onMa
         painted = true;
         clearTimeout(watchdog);
         setStatus("ready");
+        setMapInstance(map);
         // Only hand the map upwards once it is genuinely usable, so "Use this
         // view" cannot capture a camera nobody has been able to look at.
         onMapReady(map);
@@ -343,6 +373,18 @@ export default function MapPreview({ view, chapterId, layers, onMapCreated, onMa
       bearing: view.bearing,
     };
 
+    // First paint happened at the cheap construction camera (see
+    // CHEAP_INITIAL_CAMERA), not the first chapter's own view — this is the
+    // flight that catches it up, the moment there is something on screen to
+    // fly FROM. lastChapterRef already equals chapterId at this point (it was
+    // seeded with the initial chapterId), so without this branch the "a
+    // different chapter" check below would never fire for it.
+    if (!hasFlownInitialRef.current) {
+      hasFlownInitialRef.current = true;
+      map.flyTo({ ...target, duration: 1400, essential: true });
+      return;
+    }
+
     // A different chapter: fly, so the reader sees the relationship between the
     // two places rather than being teleported.
     if (lastChapterRef.current !== chapterId) {
@@ -388,6 +430,8 @@ export default function MapPreview({ view, chapterId, layers, onMapCreated, onMa
           buildings are unavailable on that style.
         </p>
       )}
+
+      <MapControls map={mapInstance} onOpenChapterList={onOpenChapterList} />
 
       {/* Kept mounted in every state, so screen readers hear the transition
           rather than a message that was already there when the region appeared. */}

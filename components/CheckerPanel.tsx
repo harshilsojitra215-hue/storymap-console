@@ -34,6 +34,8 @@ function FindingRow({ f }: { f: Finding }) {
  */
 export default function CheckerPanel({ findings, projectFindings }: Props) {
   const clean = findings.length === 0;
+  const accessibilityFindings = findings.filter((f) => f.category === "accessibility");
+  const generalFindings = findings.filter((f) => f.category !== "accessibility");
 
   return (
     <section className="checker" aria-live="polite">
@@ -43,15 +45,38 @@ export default function CheckerPanel({ findings, projectFindings }: Props) {
       </div>
 
       {clean ? (
-        <p className="checker-clean">
-          This chapter passes every rule in the list. Nothing here needs fixing before it ships.
-        </p>
+        <div className="checker-clean" role="status">
+          <span className="checker-clean-mark" aria-hidden="true">
+            ✓
+          </span>
+          <div>
+            <p className="checker-clean-headline">Nothing to fix</p>
+            <p className="checker-clean-detail">
+              This chapter passes every rule in the list — content, camera and accessibility alike.
+            </p>
+          </div>
+        </div>
       ) : (
-        <ul className="finding-list">
-          {findings.map((f) => (
-            <FindingRow key={f.ruleId} f={f} />
-          ))}
-        </ul>
+        <>
+          {generalFindings.length > 0 && (
+            <ul className="finding-list">
+              {generalFindings.map((f) => (
+                <FindingRow key={f.ruleId} f={f} />
+              ))}
+            </ul>
+          )}
+
+          {accessibilityFindings.length > 0 && (
+            <div className="checker-group">
+              <p className="checker-group-label">Accessibility</p>
+              <ul className="finding-list">
+                {accessibilityFindings.map((f) => (
+                  <FindingRow key={f.ruleId} f={f} />
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
       )}
 
       {projectFindings.length > 0 && (

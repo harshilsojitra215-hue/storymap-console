@@ -97,6 +97,22 @@ and it includes the 3D building data that makes the camera problem real. If that
 reached, the app falls back to MapLibre's demo style on its own and says so in the corner of the
 preview; 3D buildings are not available on the fallback style.
 
+### Photo credits
+
+The four chapter photographs are real, CC BY-SA 4.0 licensed, from Wikimedia Commons:
+
+- `hauptbahnhof.jpg` — "Frankfurt (Main) Hauptbahnhof facade.jpg" by **Megalogiannis**, CC BY-SA 4.0,
+  https://commons.wikimedia.org/wiki/File:Frankfurt_(Main)_Hauptbahnhof_facade.jpg
+- `west-portal.jpg` — "Platform hall-Frankfurt (Main) Hauptbahnhof-06.jpg" by **MHM55**, CC BY-SA 4.0,
+  https://commons.wikimedia.org/wiki/File:Platform_hall-Frankfurt_(Main)_Hauptbahnhof-06.jpg
+- `east-portal.jpg` — "202206 Frankfurt (Main) Hauptbahnhof 02.jpg" by **Jonashtand**, CC BY-SA 4.0,
+  https://commons.wikimedia.org/wiki/File:202206_Frankfurt_(Main)_Hauptbahnhof_02.jpg
+- `frankfurt-sued.jpg` — "Bahnhof Frankfurt (Main) Süd, 1, Sachsenhausen, Frankfurt am Main.jpg" by
+  **GeorgDerReisende**, CC BY-SA 4.0,
+  https://commons.wikimedia.org/wiki/File:Bahnhof_Frankfurt_(Main)_S%C3%BCd,_1,_Sachsenhausen,_Frankfurt_am_Main.jpg
+
+Also credited in the interface itself, under "Photograph credits" in the footer.
+
 ### One piece of build machinery worth explaining
 
 `npm run dev` and `npm run build` both run [`scripts/copy-map-worker.mjs`](scripts/copy-map-worker.mjs)

@@ -91,6 +91,13 @@ export type Rule = {
   message: string | ((c: Chapter) => string);
   why: string;
   test: (c: Chapter) => boolean;
+  /**
+   * Set only on rules the checker groups under its own "Accessibility"
+   * heading. The reference product sells BFSG/WCAG compliance as a headline
+   * feature, so these earn their own labelled section rather than sitting
+   * mixed in with everything else — grouping only, no new rules.
+   */
+  category?: "accessibility";
 };
 
 export const RULES: Rule[] = [
@@ -134,6 +141,7 @@ export const RULES: Rule[] = [
   {
     id: "image-without-alt",
     severity: "blocker",
+    category: "accessibility",
     message: "Image has no alt text",
     why: "Required under BFSG and WCAG. Public-sector infrastructure communication has to be accessible, so this one is a legal problem, not a style problem.",
     test: (c) => !blank(c.imageUrl) && blank(c.imageAlt),
@@ -191,12 +199,15 @@ export const RULES: Rule[] = [
 
 /** Runs the whole taxonomy over one chapter. Cheap enough to call on every keystroke. */
 export function evaluate(chapter: Chapter): Finding[] {
-  return RULES.filter((rule) => rule.test(chapter)).map(({ id, severity, message, why }) => ({
-    ruleId: id,
-    severity,
-    message: typeof message === "function" ? message(chapter) : message,
-    why,
-  }));
+  return RULES.filter((rule) => rule.test(chapter)).map(
+    ({ id, severity, message, why, category }) => ({
+      ruleId: id,
+      severity,
+      message: typeof message === "function" ? message(chapter) : message,
+      why,
+      category,
+    }),
+  );
 }
 
 /**
