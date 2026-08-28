@@ -69,6 +69,10 @@
   --motion-fast: 0.15s ease;
   --motion-base: 0.2s ease;
   --motion-fly: 1.2s cubic-bezier(0.22, 0.61, 0.36, 1);
+  /* For the handful of transitions that report something happening rather
+     than just a hover/press response — a captured camera value landing in
+     its field, a finding clearing — roughly 400ms, per the brief. */
+  --motion-clear: 0.4s ease;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -256,6 +260,77 @@ h3 {
    behind the compass instead — right:60 keeps its right edge clear of the
    compass's own 50px-wide footprint (right:16 + its 34px width), so neither
    collision comes back. */
+/* The one piece of onboarding copy in the app: two lines, dismissed once
+   and remembered (see StorymapConsole's localStorage check), gone entirely
+   the moment "Use this view" is actually used since its own instruction is
+   exactly that action. Sitting partly over the card's own top edge here is
+   fine — the corner back/close buttons already do exactly that, by design,
+   at a higher z-index than the card. What actually needs avoiding is the
+   OTHER floating chrome up here (the search pill, the corner buttons
+   themselves): left:280 clears both at this width, measured. Below
+   max-width:1180 (see media query) the pane narrows enough that this and
+   the card's own up-to-400px width would start fighting for the same
+   shrinking space, so that range gets its own safer position instead of
+   trying to make one placement cover every width down to the 900px
+   breakpoint. */
+.first-run-tip {
+  position: absolute;
+  z-index: 3;
+  top: 12px;
+  left: 280px;
+  max-width: 380px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(4px);
+  box-shadow: var(--shadow);
+  animation: checker-fade var(--motion-base);
+}
+
+.first-run-tip p {
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: #2a3236;
+}
+
+.first-run-tip-dismiss {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: #6b7686;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--motion-fast);
+}
+
+.first-run-tip-dismiss:hover {
+  background: var(--line-soft);
+  color: var(--ink);
+}
+
+/* Between the split layout's own breakpoint (900px) and about 1180px, the
+   pane is narrow enough that this and the story card's own up-to-400px
+   width would start genuinely overlapping — measured, not assumed — with
+   no other clean spot up here to move it to instead (the search pill and
+   corner buttons already fill the only other gap). Omitting it in that one
+   in-between range is more restrained than forcing an overlap just to keep
+   it present everywhere; below 900px it gets its own full-width mobile
+   position instead (see that media query). */
+@media (min-width: 901px) and (max-width: 1180px) {
+  .first-run-tip {
+    display: none;
+  }
+}
+
 .preview-scope-note {
   position: absolute;
   z-index: 2;
@@ -494,6 +569,20 @@ h3 {
   cursor: not-allowed;
 }
 
+/* A quiet, static ring — not a pulse or a glow animation — reading as "the
+   primary action" for a first-time visitor without moving on its own; motion
+   here is reserved for things that actually happened (see .field-captured
+   and .finding-clearing), not for drawing the eye by decoration alone. Falls
+   away for good the moment "Use this view" is used once (StorymapConsole
+   tracks that in localStorage), so a returning visitor never sees it. */
+.primary-btn.is-emphasized {
+  /* accent-soft alone reads as almost invisible against --panel — they're
+     close to the same lightness — so this pairs the existing ring language
+     with the same lifted-shadow token already used for floating furniture,
+     giving it real contrast without introducing a new colour. */
+  box-shadow: var(--shadow-furniture), 0 0 0 3px var(--accent-soft);
+}
+
 .view-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -505,6 +594,27 @@ h3 {
 .field-number input {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+/* Reports something that actually happened — these five numbers just got
+   written in from the map — rather than decorating the form. Same ring
+   language as the existing focus state, so it reads as "this is where your
+   attention was" rather than as a new, unrelated effect. */
+@keyframes field-captured-flash {
+  from {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+    background: var(--accent-soft);
+  }
+  to {
+    border-color: var(--line);
+    box-shadow: 0 0 0 0 transparent;
+    background: var(--bg);
+  }
+}
+
+.field-captured input {
+  animation: field-captured-flash var(--motion-clear);
 }
 
 .capture-note {
@@ -665,6 +775,18 @@ h3 {
   border-radius: var(--radius);
   border-left: 3px solid transparent;
   animation: checker-fade var(--motion-base);
+  /* Generous, well above any real finding's rendered height in this app —
+     exists only so max-height has a real number to transition from when
+     .finding-clearing takes it to 0, not to cap normal content. */
+  max-height: 300px;
+  overflow: hidden;
+  transition:
+    opacity var(--motion-clear),
+    transform var(--motion-clear),
+    max-height var(--motion-clear),
+    padding var(--motion-clear),
+    background var(--motion-clear),
+    border-color var(--motion-clear);
 }
 
 .finding-blocker {
@@ -680,6 +802,22 @@ h3 {
 .finding-suggestion {
   background: var(--suggestion-soft);
   border-left-color: var(--suggestion);
+}
+
+/* Fixing whatever this finding complained about should be seen resolving,
+   not just inferred from its sudden absence — a beat of "this turned out
+   fine" (the clean-state green) before the row actually collapses away.
+   Same class regardless of severity, defined after the severity classes
+   above so it wins at equal specificity without needing !important. */
+.finding-clearing {
+  opacity: 0;
+  transform: scale(0.97);
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  background: var(--clean-soft);
+  border-left-color: var(--clean);
+  pointer-events: none;
 }
 
 .sev-tag {
@@ -757,30 +895,36 @@ h3 {
   border-top: 1px solid var(--line);
 }
 
+.metrics-header {
+  padding: 14px 20px 4px;
+}
+
+.metrics-label {
+  display: block;
+  margin: 0 0 10px;
+  font-size: var(--fs-sm);
+  font-weight: 650;
+}
+
 .metrics-toggle {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 12px 20px;
+  padding: 8px 20px 12px;
   background: none;
   border: 0;
   cursor: pointer;
-  font-size: var(--fs-sm);
-  font-weight: 650;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
   text-align: left;
 }
 
 .metrics-toggle:hover {
   background: var(--line-soft);
-}
-
-.metrics-headline {
-  flex: 1 1 auto;
-  font-family: var(--font-mono);
-  font-weight: 400;
-  font-size: var(--fs-base);
-  color: var(--muted);
 }
 
 .chevron {
@@ -795,7 +939,7 @@ h3 {
 .metrics-figures {
   display: flex;
   gap: 10px;
-  margin: 0 0 14px;
+  margin: 0;
 }
 
 .metrics-figures > div {
@@ -1556,6 +1700,16 @@ h3 {
     bottom: auto;
     left: 12px;
     text-align: left;
+  }
+
+  /* Same full-width band pattern as the scope note above, stacked below it —
+     desktop's left:280 placement assumes room beside the header and search
+     chip that a 390px pane simply doesn't have. */
+  .first-run-tip {
+    top: 158px;
+    left: 12px;
+    right: 12px;
+    max-width: none;
   }
 
   /* The corner back/close buttons default to top:40 — fine on desktop's tall

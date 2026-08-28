@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Chapter, MapView } from "@/lib/types";
 import { LAYER_DEFINITIONS, type LayerId } from "@/lib/layers";
 
@@ -15,6 +15,12 @@ type Props = {
   mapReady: boolean;
   /** Changes whenever the fields are replaced from outside, e.g. by "Use this view". */
   resetKey: string;
+  /** Bumped only by "Use this view" (unlike resetKey, unaffected by switching
+   *  chapters) — the one signal that means "the five fields below just got
+   *  written from the map," not "a different chapter's own numbers loaded." */
+  captureCount: number;
+  /** True until "Use this view" has been used once, ever — see StorymapConsole. */
+  emphasizeUseThisView: boolean;
 };
 
 const VIEW_FIELDS: { key: keyof MapView; label: string; step: number; hint: string }[] = [
@@ -33,6 +39,8 @@ export default function ChapterForm({
   onUseThisView,
   mapReady,
   resetKey,
+  captureCount,
+  emphasizeUseThisView,
 }: Props) {
   /**
    * Number inputs keep whatever the person has literally typed until it parses.
@@ -44,6 +52,31 @@ export default function ChapterForm({
   useEffect(() => {
     setDrafts({});
   }, [resetKey]);
+
+  /**
+   * True for one brief window right after "Use this view" writes new numbers
+   * in, so the five fields below can flash to show the eye where to look.
+   * Keyed off captureCount specifically (not resetKey, which also changes on
+   * a plain chapter switch) — a switch should not replay this, only an
+   * actual capture should. The ref starts at the same value captureCount
+   * already has, so the very first render (mount) never fires it.
+   */
+  const [justCapturedFor, setJustCapturedFor] = useState<string | null>(null);
+  const prevCaptureCount = useRef(captureCount);
+
+  useEffect(() => {
+    if (captureCount === prevCaptureCount.current) return;
+    prevCaptureCount.current = captureCount;
+    // Recorded against the chapter it happened on — this form doesn't remount
+    // on a chapter switch, so a flash started here and still in flight when
+    // someone clicks a different chapter would otherwise keep playing on
+    // that chapter's completely unrelated numbers.
+    setJustCapturedFor(chapter.id);
+    const timer = setTimeout(() => setJustCapturedFor(null), 500);
+    return () => clearTimeout(timer);
+  }, [captureCount, chapter.id]);
+
+  const justCaptured = justCapturedFor === chapter.id;
 
   const handleNumber = (key: keyof MapView, raw: string) => {
     setDrafts((d) => ({ ...d, [key]: raw }));
@@ -106,7 +139,7 @@ export default function ChapterForm({
           <h3 className="view-title">Map view</h3>
           <button
             type="button"
-            className="primary-btn"
+            className={emphasizeUseThisView ? "primary-btn is-emphasized" : "primary-btn"}
             onClick={onUseThisView}
             disabled={!mapReady}
             title="Write the map's current camera into these five fields"
@@ -121,7 +154,10 @@ export default function ChapterForm({
 
         <div className="view-grid">
           {VIEW_FIELDS.map(({ key, label, step, hint }) => (
-            <label className="field field-number" key={key}>
+            <label
+              className={justCaptured ? "field field-number field-captured" : "field field-number"}
+              key={key}
+            >
               <span className="field-label">{label}</span>
               <input
                 type="number"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type * as MapLibre from "maplibre-gl";
 
@@ -30,6 +30,11 @@ const MapPreview = dynamic(() => import("@/components/MapPreview"), {
 
 const round = (n: number, places: number) => Number(n.toFixed(places));
 
+/** localStorage keys for the two first-visit cues below — namespaced so they
+ *  don't collide with anything else that might ever share this origin. */
+const TIP_DISMISSED_KEY = "storymap-console:tip-dismissed";
+const VIEW_CAPTURED_ONCE_KEY = "storymap-console:used-view-capture";
+
 type Props = {
   /**
    * Loaded server-side through the GraphQL schema in lib/graphql/schema.ts —
@@ -52,6 +57,26 @@ export default function StorymapConsole({ initialChapters, loadError }: Props) {
   /** The floating story panel's own top-right "close" button hides it; the
    *  map furniture's bottom-left button (and reselecting a chapter) brings it back. */
   const [storyVisible, setStoryVisible] = useState(true);
+  /**
+   * Both default to the "seen it already" state — false is what the server
+   * renders, since it has no localStorage to check — and are corrected once,
+   * after mount, by reading real storage. That means a returning visitor's
+   * first paint never flashes the tip or the button emphasis on, and a
+   * genuine first-time visitor sees them settle in a moment after load
+   * rather than risk showing then immediately hiding either one.
+   */
+  const [showFirstRunTip, setShowFirstRunTip] = useState(false);
+  const [hasEverUsedView, setHasEverUsedView] = useState(true);
+
+  useEffect(() => {
+    setShowFirstRunTip(localStorage.getItem(TIP_DISMISSED_KEY) !== "1");
+    setHasEverUsedView(localStorage.getItem(VIEW_CAPTURED_ONCE_KEY) === "1");
+  }, []);
+
+  const dismissFirstRunTip = useCallback(() => {
+    localStorage.setItem(TIP_DISMISSED_KEY, "1");
+    setShowFirstRunTip(false);
+  }, []);
 
   const mapRef = useRef<MapLibre.Map | null>(null);
   /** True once the map instance exists — which it does for the rest of the session. */
@@ -158,7 +183,14 @@ export default function StorymapConsole({ initialChapters, loadError }: Props) {
     });
     recordEdit(selectedId, "useThisView");
     setCaptureCount((n) => n + 1);
-  }, [patchSelected, recordEdit, selectedId]);
+    // Once used, the button's resting emphasis has done its job — for this
+    // visit and every future one. Also clears the first-run tip: its own
+    // instruction is exactly the action that just happened, so leaving it up
+    // afterward would be nagging, not guidance.
+    localStorage.setItem(VIEW_CAPTURED_ONCE_KEY, "1");
+    setHasEverUsedView(true);
+    dismissFirstRunTip();
+  }, [patchSelected, recordEdit, selectedId, dismissFirstRunTip]);
 
   const handleMapCreated = useCallback(() => {
     mapExistsRef.current = true;
@@ -233,9 +265,15 @@ export default function StorymapConsole({ initialChapters, loadError }: Props) {
                 onUseThisView={handleUseThisView}
                 mapReady={mapReady}
                 resetKey={`${selectedId}:${captureCount}`}
+                captureCount={captureCount}
+                emphasizeUseThisView={!hasEverUsedView}
               />
 
-              <CheckerPanel findings={findings} projectFindings={projectFindings} />
+              <CheckerPanel
+                findings={findings}
+                projectFindings={projectFindings}
+                chapterId={selectedId}
+              />
 
               <MetricsPanel metrics={metrics} chapter={selected} />
             </>
@@ -305,6 +343,23 @@ export default function StorymapConsole({ initialChapters, loadError }: Props) {
 
         <section className="pane pane-right" aria-label="Live preview">
           <p className="pane-header pane-header-floating">Live preview of the published page</p>
+          {showFirstRunTip && (
+            <div className="first-run-tip" role="status">
+              <p>
+                This is your live preview, not a screenshot — it updates as you type.
+                <br />
+                Drag the map until the view looks right, then press <strong>Use this view</strong>.
+              </p>
+              <button
+                type="button"
+                className="first-run-tip-dismiss"
+                onClick={dismissFirstRunTip}
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+          )}
           {selected && (
             <>
               <MapPreview

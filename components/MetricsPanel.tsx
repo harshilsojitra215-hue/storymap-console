@@ -34,16 +34,30 @@ export default function MetricsPanel({ metrics, chapter }: Props) {
 
   return (
     <section className="metrics">
+      <div className="metrics-header">
+        <span className="metrics-label">Measurement</span>
+        {/* The most persuasive number in the project, shown by default rather
+            than behind a click — the honest edit count and the fact that
+            none of it cost a reload are the whole argument, not a detail. */}
+        <dl className="metrics-figures">
+          <div>
+            <dt>Total edits this session</dt>
+            <dd>{metrics.totalEdits}</dd>
+          </div>
+          <div>
+            <dt>Edits made without reloading the preview</dt>
+            <dd>{metrics.editsSinceMapCreated}</dd>
+          </div>
+        </dl>
+      </div>
+
       <button
         type="button"
         className="metrics-toggle"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <span>Measurement</span>
-        <span className="metrics-headline">
-          {metrics.totalEdits} edit{metrics.totalEdits === 1 ? "" : "s"} this session
-        </span>
+        <span>Edits per field</span>
         <span className="chevron" aria-hidden="true">
           {open ? "−" : "+"}
         </span>
@@ -51,17 +65,6 @@ export default function MetricsPanel({ metrics, chapter }: Props) {
 
       {open && (
         <div className="metrics-body">
-          <dl className="metrics-figures">
-            <div>
-              <dt>Total edits this session</dt>
-              <dd>{metrics.totalEdits}</dd>
-            </div>
-            <div>
-              <dt>Edits made without reloading the preview</dt>
-              <dd>{metrics.editsSinceMapCreated}</dd>
-            </div>
-          </dl>
-
           <h3 className="metrics-subtitle">
             Edits per field — {chapter.title.trim() || "untitled chapter"}
           </h3>
